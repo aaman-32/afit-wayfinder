@@ -1,122 +1,61 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
+import { useCallback, useEffect, useState } from 'react'
+import { api, getToken, setToken, store } from './api'
+import AuthPage from './AuthPage'
+import AdminUsers from './AdminUsers'
+import MapView from './MapView'
 import './App.css'
 
-function App() {
-  const [count, setCount] = useState(0)
+const CACHE = 'afit_places_cache'
+const PCACHE = 'afit_paths_cache'
+const readCache = (k = CACHE) => { try { return JSON.parse(store.get(k) || 'null') } catch { return null } }
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+export default function App() {
+  const [user, setUser] = useState(null)
+  const [ready, setReady] = useState(!getToken())
+  const [guest, setGuest] = useState(store.get('afit_guest') === '1')
+  const [view, setView] = useState('map')
+  const [places, setPlaces] = useState(() => readCache() || [])
+  const [paths, setPaths] = useState(() => readCache(PCACHE) || [])
+  const [status, setStatus] = useState('ok')
 
-      <div className="ticks"></div>
+  useEffect(() => {
+    if (!getToken()) return
+    api('/me').then((d) => setUser(d.user))
+      .catch((e) => { if (e.status === 401) setToken(null) })
+      .finally(() => setReady(true))
+  }, [])
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+  const loadPlaces = useCallback(async () => {
+    try {
+      const d = await api('/places')
+      setPlaces(d.places); store.set(CACHE, JSON.stringify(d.places)); setStatus('ok')
+      try { const pd = await api('/paths'); setPaths(pd.paths); store.set(PCACHE, JSON.stringify(pd.paths)) } catch { /* keep cached paths */ }
+    } catch {
+      setStatus('offline')
+      if (!readCache()) {
+        try {
+          const j = await (await fetch('/campus-data.json')).json()
+          setPlaces(j.features.map((f) => ({ id: f.properties.id, name: f.properties.name, category: f.properties.category, description: f.properties.description, keywords: f.properties.search_keywords || [], lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] })))
+        } catch { /* nothing to show */ }
+      }
+    }
+  }, [])
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+  // keep every device in sync: refresh now, every minute, and when the app regains focus
+  useEffect(() => {
+    const t0 = setTimeout(loadPlaces, 0)
+    const t = setInterval(loadPlaces, 60000)
+    const onVis = () => document.visibilityState === 'visible' && loadPlaces()
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('focus', loadPlaces)
+    return () => { clearTimeout(t0); clearInterval(t); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', loadPlaces) }
+  }, [loadPlaces])
+
+  const logout = () => { setToken(null); store.del('afit_guest'); setGuest(false); setUser(null); setView('map') }
+  const goGuest = () => { store.set('afit_guest', '1'); setGuest(true) }
+
+  if (!ready) return <div className="auth"><p>Loading…</p></div>
+  if (!user && !guest) return <AuthPage onAuth={(u) => { setUser(u); setView('map') }} onGuest={goGuest} />
+  if (view === 'users' && user?.role === 'admin') return <AdminUsers me={user} onBack={() => setView('map')} />
+  return <MapView user={user} places={places} paths={paths} status={status} onChanged={loadPlaces} onLogout={logout} onUsers={() => setView('users')} onLogin={() => { store.del('afit_guest'); setGuest(false) }} />
 }
-
-export default App

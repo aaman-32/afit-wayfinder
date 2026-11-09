@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server": "node server/index.js",
+    "start": "node server/index.js"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",
@@ -17,10 +19,14 @@
     "@capacitor/share": "^8.0.3",
     "@capacitor/toast": "^8.0.1",
     "axios": "^1.21.0",
-    "leaflet": "^1.9.4",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "maplibre-gl": "^6.17.0",
+    "pg": "^8.23.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.18.5"
   },
   "devDependencies": {
@@ -33,6 +39,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.13.0",
+    "pg-mem": "^3.0.14",
     "vite": "^8.3.6"
   }
 }
