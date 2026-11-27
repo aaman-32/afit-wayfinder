@@ -74,27 +74,64 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease bundleRelease --no-daemon --stacktrace
 
-      - name: Sign Release APK
+      - name: Sign Release APK & AAB
         if: steps.version.outputs.is_new == 'true'
-        id: sign_apk
-        uses: r0adkll/sign-android-release@v1
-        with:
-          releaseDirectory: android/app/build/outputs/apk/release
-          signingKeyBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          alias: ${{ secrets.ANDROID_KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        id: sign
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f release.keystore' EXIT
 
-      - name: Sign Release AAB (Play Store)
-        if: steps.version.outputs.is_new == 'true'
-        id: sign_aab
-        uses: r0adkll/sign-android-release@v1
-        with:
-          releaseDirectory: android/app/build/outputs/bundle/release
-          signingKeyBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          alias: ${{ secrets.ANDROID_KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release.keystore
+
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          LATEST_TOOLS=$(ls -1 "$SDK_DIR/build-tools" | sort -V | tail -n 1)
+          if [ -z "$LATEST_TOOLS" ]; then
+            echo "No Android build-tools found in $SDK_DIR/build-tools" >&2
+            exit 1
+          fi
+          BUILD_TOOLS="$SDK_DIR/build-tools/$LATEST_TOOLS"
+
+          # Align and sign the release APK
+          UNSIGNED_APK=$(find android/app/build/outputs/apk/release -maxdepth 1 -name "*.apk" | head -n 1)
+          if [ -z "$UNSIGNED_APK" ]; then
+            echo "No release APK found" >&2
+            exit 1
+          fi
+          ALIGNED_APK="android/app/build/outputs/apk/release/app-release-aligned.apk"
+          SIGNED_APK="android/app/build/outputs/apk/release/app-release-signed.apk"
+
+          "$BUILD_TOOLS/zipalign" -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks release.keystore \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:ANDROID_KEY_PASSWORD \
+            --out "$SIGNED_APK" \
+            "$ALIGNED_APK"
+
+          # Sign the release AAB for Google Play
+          UNSIGNED_AAB=$(find android/app/build/outputs/bundle/release -maxdepth 1 -name "*.aab" | head -n 1)
+          if [ -z "$UNSIGNED_AAB" ]; then
+            echo "No release AAB found" >&2
+            exit 1
+          fi
+          SIGNED_AAB="android/app/build/outputs/bundle/release/app-release-signed.aab"
+          cp "$UNSIGNED_AAB" "$SIGNED_AAB"
+
+          jarsigner \
+            -keystore release.keystore \
+            -storepass:env ANDROID_KEYSTORE_PASSWORD \
+            -keypass:env ANDROID_KEY_PASSWORD \
+            "$SIGNED_AAB" \
+            "$ANDROID_KEY_ALIAS"
+
+          echo "apk_path=$SIGNED_APK" >> $GITHUB_OUTPUT
+          echo "aab_path=$SIGNED_AAB" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release with Signed Binaries
         if: steps.version.outputs.is_new == 'true'
@@ -102,7 +139,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ steps.version.outputs.tag }}" \
-            "${{ steps.sign_apk.outputs.signedReleaseFile }}" \
-            "${{ steps.sign_aab.outputs.signedReleaseFile }}" \
+            "${{ steps.sign.outputs.apk_path }}" \
+            "${{ steps.sign.outputs.aab_path }}" \
             --title "Release ${{ steps.version.outputs.tag }}" \
             --generate-notes
