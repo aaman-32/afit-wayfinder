@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: afit-wayfinder
+    runtime: node
+    plan: free
+    # --include=dev because NODE_ENV=production would otherwise skip Vite at build time
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL   # Postgres connection string (e.g. from Aiven)
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
