@@ -72,7 +72,7 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease bundleRelease
+          ./gradlew assembleRelease bundleRelease --no-daemon --stacktrace
 
       - name: Sign Release APK
         if: steps.version.outputs.is_new == 'true'
