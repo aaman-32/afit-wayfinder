@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">AFIT Wayfinder</string>
-    <string name="title_activity_main">AFIT Wayfinder</string>
-    <string name="package_name">com.afitwayfinder.app</string>
-    <string name="custom_url_scheme">com.afitwayfinder.app</string>
+    <string name="app_name">AFIT WayFinder</string>
+    <string name="title_activity_main">AFIT WayFinder</string>
+    <string name="package_name">com.halo.afitwayfinder.app</string>
+    <string name="custom_url_scheme">com.halo.afitwayfinder.app</string>
 </resources>

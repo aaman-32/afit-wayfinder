@@ -1,4 +1,4 @@
-package com.afitwayfinder.app;
+package com.halo.afitwayfinder.app;
 
 import com.getcapacitor.BridgeActivity;
 
