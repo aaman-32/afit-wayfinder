@@ -45,12 +45,12 @@ jobs:
           node-version: 24
           cache: 'npm'
 
-      - name: Setup JDK 17
+      - name: Setup JDK 21
         if: steps.version.outputs.is_new == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: Install & Build Web Assets
         if: steps.version.outputs.is_new == 'true'
