@@ -1,24 +1,108 @@
-name: Build
+name: Version, Sign & Release Capacitor App
 
 on:
   push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
+    branches:
+      - main
+    paths:
+      - 'package.json'
+
+permissions:
+  contents: write
 
 jobs:
-  web:
+  build-sign-release:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run build
-      - uses: actions/upload-artifact@v4
+          fetch-depth: 0
+
+      - name: Check if version changed
+        id: version
+        run: |
+          APP_VERSION=$(node -p "require('./package.json').version")
+          TAG="v$APP_VERSION"
+          
+          VERSION_CODE=$(node -e "const [maj, min, pat] = '$APP_VERSION'.split('.').map(Number); console.log(maj * 10000 + min * 100 + pat);")
+          
+          echo "name=$APP_VERSION" >> $GITHUB_OUTPUT
+          echo "code=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "is_new=false" >> $GITHUB_OUTPUT
+          else
+            echo "is_new=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Node & Java
+        if: steps.version.outputs.is_new == 'true'
+        uses: actions/setup-node@v4
         with:
-          name: web-dist
-          path: dist
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup JDK 17
+        if: steps.version.outputs.is_new == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install & Build Web Assets
+        if: steps.version.outputs.is_new == 'true'
+        run: |
+          npm ci
+          npm run build
+          npx cap sync android
+
+      - name: Update Android Version Name & Code
+        if: steps.version.outputs.is_new == 'true'
+        uses: chkfung/android-version-actions@v1.2.1
+        with:
+          gradlePath: android/app/build.gradle
+          versionCode: ${{ steps.version.outputs.code }}
+          versionName: ${{ steps.version.outputs.name }}
+
+      - name: Build Release APK & AAB
+        if: steps.version.outputs.is_new == 'true'
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease bundleRelease
+
+      - name: Sign Release APK
+        if: steps.version.outputs.is_new == 'true'
+        id: sign_apk
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: android/app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Sign Release AAB (Play Store)
+        if: steps.version.outputs.is_new == 'true'
+        id: sign_aab
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: android/app/build/outputs/bundle/release
+          signingKeyBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Create GitHub Release with Signed Binaries
+        if: steps.version.outputs.is_new == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "${{ steps.sign_apk.outputs.signedReleaseFile }}" \
+            "${{ steps.sign_aab.outputs.signedReleaseFile }}" \
+            --title "Release ${{ steps.version.outputs.tag }}" \
+            --generate-notes
