@@ -4,8 +4,10 @@ import { cloudflare } from '@cloudflare/vite-plugin';
 
 export default defineConfig({
   plugins: [react(), cloudflare()],
+  worker: {
+    format: 'es',
+  },
   optimizeDeps: {
-    exclude: ['maplibre-gl'],
     esbuildOptions: {
       target: 'es2022',
     },
